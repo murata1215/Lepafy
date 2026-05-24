@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lepafy</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- ===== ツールバー ===== -->
+  <div id="toolbar">
+    <button id="btn-open" title="フォルダを開く">📂 開く</button>
+    <span id="toolbar-separator"></span>
+    <button id="btn-prev" title="前のページ (←)">◀</button>
+    <span id="page-info">-- / --</span>
+    <button id="btn-next" title="次のページ (→)">▶</button>
+    <span id="toolbar-separator"></span>
+    <label id="spread-toggle" title="見開き/単ページ切替">
+      <input type="checkbox" id="chk-spread" checked>
+      見開き
+    </label>
+    <label id="rtl-toggle" title="右→左/左→右切替">
+      <input type="checkbox" id="chk-rtl" checked>
+      右→左
+    </label>
+  </div>
+
+  <!-- ===== メインコンテンツ ===== -->
+  <div id="main">
+    <!-- 左ペイン: フォルダツリー + ファイル一覧 -->
+    <div id="left-pane">
+      <!-- リサイズ用ドラッグ境界: フォルダツリーとファイル一覧の間 -->
+      <div id="folder-tree-container">
+        <div class="pane-header">フォルダ</div>
+        <div id="folder-tree"></div>
+      </div>
+      <div id="left-divider" class="divider-h"></div>
+      <div id="file-list-container">
+        <div class="pane-header">ファイル</div>
+        <div id="file-list"></div>
+      </div>
+    </div>
+
+    <!-- リサイズ用ドラッグ境界: 左ペインとビューアの間 -->
+    <div id="main-divider" class="divider-v"></div>
+
+    <!-- 右ペイン: 画像ビューア -->
+    <div id="viewer">
+      <div id="viewer-content">
+        <div id="page-left" class="page-slot"></div>
+        <div id="page-right" class="page-slot"></div>
+      </div>
+      <div id="empty-message">フォルダを開いて漫画を選択してください</div>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

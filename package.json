@@ -1,0 +1,19 @@
+{
+  "name": "lepafy",
+  "version": "1.0.0",
+  "description": "Lepafy - ページを軽やかにめくる漫画ビューア",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^42.2.0"
+  },
+  "dependencies": {
+    "node-unrar-js": "^2.0.2",
+    "yauzl": "^3.3.1"
+  }
+}
