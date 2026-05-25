@@ -285,7 +285,7 @@ ipcMain.handle('select-folder', async () => {
  * 指定パスのディレクトリツリーを取得する（1階層分）
  * フォルダに加えてアーカイブファイルもツリー項目として返す
  * @param {string} dirPath - 対象ディレクトリのパス
- * @returns {Array<{name: string, path: string, isDirectory: boolean, isArchive: boolean}>} 子要素の一覧
+ * @returns {Array<{name: string, path: string, isDirectory: boolean, isArchive: boolean, isCached: boolean, mtimeMs: number}>} 子要素の一覧
  */
 ipcMain.handle('read-dir', async (_event, dirPath) => {
   try {
@@ -299,12 +299,31 @@ ipcMain.handle('read-dir', async (_event, dirPath) => {
         if (e.isFile() && isArchive(e.name)) return true;
         return false;
       })
-      .map((e) => ({
-        name: e.name,
-        path: path.join(dirPath, e.name),
-        isDirectory: e.isDirectory(),
-        isArchive: e.isFile() && isArchive(e.name),
-      }))
+      .map((e) => {
+        const fullPath = path.join(dirPath, e.name);
+        const entryIsArchive = e.isFile() && isArchive(e.name);
+
+        /* アーカイブの場合: キャッシュ済みかどうかと更新日時を取得 */
+        let isCached = false;
+        let mtimeMs = 0;
+        if (entryIsArchive) {
+          try {
+            const cachePath = getCachePath(fullPath);
+            isCached = fs.existsSync(cachePath);
+            const stat = fs.statSync(fullPath);
+            mtimeMs = stat.mtimeMs;
+          } catch { /* 取得失敗時はデフォルト値を使用 */ }
+        }
+
+        return {
+          name: e.name,
+          path: fullPath,
+          isDirectory: e.isDirectory(),
+          isArchive: entryIsArchive,
+          isCached,
+          mtimeMs,
+        };
+      })
       .sort((a, b) => {
         /* フォルダを先、アーカイブを後に並べる */
         if (a.isDirectory && !b.isDirectory) return -1;

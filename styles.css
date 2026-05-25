@@ -280,8 +280,31 @@ body {
 }
 
 /* ===== アーカイブ項目のスタイル ===== */
+
+/* 展開済みアーカイブ: 控えめな灰青（既読） */
 .tree-item.tree-archive .tree-label {
-  color: #7cb8e2;
+  color: #6a8ea0;
+}
+
+/* 未展開アーカイブ: 緑で目立たせる + ● マーカー（未読） */
+.tree-item.tree-archive.tree-unread .tree-label {
+  color: #5ef0b0;
+  font-weight: bold;
+}
+
+.tree-item.tree-archive.tree-unread .tree-label::before {
+  content: '● ';
+  color: #5ef0b0;
+  font-size: 10px;
+}
+
+/* NEW バッジ: 最近追加されたアーカイブに表示 */
+.tree-new-badge {
+  font-size: 9px;
+  color: #ff6b6b;
+  margin-left: 6px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
 }
 
 .tree-item.tree-archive:hover {
@@ -295,6 +318,10 @@ body {
 
 .tree-item.tree-archive.selected .tree-label {
   color: #fff;
+}
+
+.tree-item.tree-archive.selected .tree-new-badge {
+  color: #ff9999;
 }
 
 /* ===== スクロールバーのカスタマイズ ===== */

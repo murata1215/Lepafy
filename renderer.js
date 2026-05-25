@@ -155,6 +155,12 @@ async function createTreeItem(entry, depth, expanded) {
   const row = document.createElement('div');
   row.className = 'tree-item';
   if (isArchive) row.classList.add('tree-archive');
+
+  /* 未展開アーカイブにはクラスを付与（展開後に除去） */
+  if (isArchive && !entry.isCached) {
+    row.classList.add('tree-unread');
+  }
+
   row.dataset.path = entryPath;
   row.style.paddingLeft = (depth * 16 + 6) + 'px';
 
@@ -179,6 +185,19 @@ async function createTreeItem(entry, depth, expanded) {
   row.appendChild(toggle);
   row.appendChild(icon);
   row.appendChild(label);
+
+  /* 最近追加されたアーカイブ（7日以内）に NEW バッジを付ける */
+  if (isArchive && entry.mtimeMs) {
+    const ageMs = Date.now() - entry.mtimeMs;
+    const ONE_DAY = 24 * 60 * 60 * 1000;
+    if (ageMs < ONE_DAY) {
+      const badge = document.createElement('span');
+      badge.className = 'tree-new-badge';
+      badge.textContent = 'NEW';
+      row.appendChild(badge);
+    }
+  }
+
   container.appendChild(row);
 
   if (isArchive) {
@@ -220,6 +239,9 @@ async function createTreeItem(entry, depth, expanded) {
 
         archiveLoaded = true;
         extractedPath = result.extractedPath;
+
+        /* 展開完了: 未読マークを除去 */
+        row.classList.remove('tree-unread');
 
         /* 展開先にサブフォルダがあるか確認 */
         const subEntries = await window.api.readDir(extractedPath);
