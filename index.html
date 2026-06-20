@@ -9,7 +9,13 @@
 <body>
   <!-- ===== ツールバー ===== -->
   <div id="toolbar">
-    <button id="btn-open" title="フォルダを開く">📂 開く</button>
+    <!-- フォルダを開く: 通常ボタン + 履歴ドロップダウンを横並びにまとめる -->
+    <div id="open-group">
+      <button id="btn-open" title="フォルダを開く">📂 開く</button>
+      <button id="btn-open-history" title="最近開いたフォルダ">▼</button>
+      <!-- 履歴ドロップダウン本体（既定は非表示、JSで開閉） -->
+      <div id="history-dropdown" class="hidden"></div>
+    </div>
     <span id="toolbar-separator"></span>
     <button id="btn-prev" title="前のページ (←)">◀</button>
     <span id="page-info">-- / --</span>

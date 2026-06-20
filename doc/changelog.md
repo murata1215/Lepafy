@@ -1,5 +1,32 @@
 # Changelog
 
+## v1.1.0 (2026-06-20) — フォルダ履歴機能
+
+### 新機能
+- 最近開いたフォルダを履歴として保持し、ドロップダウンから選択して再オープン可能に
+  - ツールバー「📂 開く」の横に「▼」ボタンを追加、クリックで履歴一覧を表示
+  - 各項目はフォルダ名（最後のディレクトリ名）+ フルパスの2段表示
+  - 外側クリック・Escape キーで閉じる、履歴が空のときは「履歴なし」表示
+
+### 変更詳細
+- `main.js`
+  - `HISTORY_PATH`（`%APPDATA%/lepafy/history.json`）/ `HISTORY_MAX=20` を追加
+  - `readFolderHistory()` を追加（非配列・破損ファイルは空配列にフォールバック）
+  - IPC `get-folder-history`（履歴配列を返す）を追加
+  - IPC `add-folder-history`（重複排除→先頭移動→20件で切り詰め→保存）を追加
+    - Windows は大小文字を無視してパス重複を判定
+- `preload.js`
+  - `getFolderHistory()` / `addFolderHistory(path)` を contextBridge で公開
+- `renderer.js`
+  - `folderNameFromPath()` ヘルパー（末尾ディレクトリ名を抽出）を追加
+  - `openHistoryDropdown()` / `closeHistoryDropdown()` を追加
+  - 「📂 開く」選択時・履歴項目クリック時・セッション復元時に `addFolderHistory` を呼ぶ
+  - 外側クリック・Escape でドロップダウンを閉じる処理を追加
+- `index.html`
+  - 「📂 開く」+「▼」+ `#history-dropdown` を `#open-group` でまとめて配置
+- `styles.css`
+  - ドロップダウン（フロート表示・影付き）と履歴項目（2段表示・ホバー強調）のダークテーマスタイルを追加
+
 ## v1.1.0 (2026-06-13) — パフォーマンス改善
 
 ### 高速化

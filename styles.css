@@ -58,6 +58,97 @@ body {
   background: #555;
 }
 
+/* ===== フォルダを開く + 履歴ドロップダウン ===== */
+/* 開くボタンと▼ボタンを密着させ、ドロップダウンの位置基準にする */
+#open-group {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+/* 開くボタンと▼ボタンの境目を自然に見せる（角丸を内側だけ無くす） */
+#open-group #btn-open {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* 履歴ドロップダウンを開く▼ボタン（幅は控えめに） */
+#btn-open-history {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  /* 開くボタンとの間の二重ボーダーを防ぐため左ボーダーを詰める */
+  border-left: none;
+  padding: 3px 8px;
+  font-size: 10px;
+}
+
+/* ドロップダウン本体: ツールバー直下にフロート表示 */
+#history-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  min-width: 320px;
+  max-width: 560px;
+  max-height: 360px;
+  overflow-y: auto;
+  background: #2d2d2d;
+  border: 1px solid #555;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  padding: 4px;
+}
+
+/* hidden クラスで開閉する */
+#history-dropdown.hidden {
+  display: none;
+}
+
+/* 履歴1項目: フォルダ名（上段）+ フルパス（下段）の2段表示 */
+.history-item {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.history-item:hover {
+  background: #094771;
+}
+
+/* フォルダ名（最後のディレクトリ名）を強調 */
+.history-item .history-name {
+  font-size: 13px;
+  color: #ddd;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* フルパスは控えめなグレーで小さく */
+.history-item .history-path {
+  font-size: 11px;
+  color: #888;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.history-item:hover .history-path {
+  color: #cfd8e0;
+}
+
+/* 履歴が空のときのメッセージ */
+.history-empty {
+  padding: 10px;
+  color: #777;
+  font-size: 12px;
+  text-align: center;
+}
+
 #page-info {
   font-size: 13px;
   min-width: 80px;

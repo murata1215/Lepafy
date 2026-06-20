@@ -49,6 +49,8 @@ const CACHE_WINDOW = 40;
 
 /* ===== DOM要素の取得 ===== */
 const btnOpen = document.getElementById('btn-open');
+const btnOpenHistory = document.getElementById('btn-open-history');
+const historyDropdown = document.getElementById('history-dropdown');
 const btnPrev = document.getElementById('btn-prev');
 const btnNext = document.getElementById('btn-next');
 const pageInfo = document.getElementById('page-info');
@@ -70,7 +72,99 @@ btnOpen.addEventListener('click', async () => {
   if (selected) {
     rootPath = selected;
     await buildFolderTree(selected);
+    /* 開いたフォルダを履歴に記録（重複排除・先頭移動はメイン側で処理） */
+    await window.api.addFolderHistory(selected);
   }
+});
+
+/* ===== フォルダ履歴ドロップダウン ===== */
+
+/**
+ * パス文字列からフォルダ名（最後のディレクトリ名）を取り出す
+ * レンダラーには path モジュールが無いため区切り文字で分割して末尾を返す
+ * @param {string} p - フォルダの絶対パス
+ * @returns {string} 末尾のフォルダ名（取得できなければパスそのまま）
+ */
+function folderNameFromPath(p) {
+  const parts = p.split(/[\\/]/).filter((s) => s.length > 0);
+  return parts.length > 0 ? parts[parts.length - 1] : p;
+}
+
+/**
+ * 履歴ドロップダウンを構築して開く
+ * 最新の履歴を取得し、各項目をフォルダ名＋フルパスの2段で描画する
+ */
+async function openHistoryDropdown() {
+  const history = await window.api.getFolderHistory();
+
+  historyDropdown.innerHTML = '';
+
+  if (!history || history.length === 0) {
+    /* 履歴が無い場合のメッセージ */
+    const empty = document.createElement('div');
+    empty.className = 'history-empty';
+    empty.textContent = '履歴なし';
+    historyDropdown.appendChild(empty);
+  } else {
+    for (const folderPath of history) {
+      const item = document.createElement('div');
+      item.className = 'history-item';
+      item.title = folderPath;
+
+      /* 上段: フォルダ名（最後のディレクトリ名） */
+      const name = document.createElement('div');
+      name.className = 'history-name';
+      name.textContent = folderNameFromPath(folderPath);
+
+      /* 下段: フルパス */
+      const full = document.createElement('div');
+      full.className = 'history-path';
+      full.textContent = folderPath;
+
+      item.appendChild(name);
+      item.appendChild(full);
+
+      /* クリックでそのフォルダを開く */
+      item.addEventListener('click', async () => {
+        closeHistoryDropdown();
+        rootPath = folderPath;
+        await buildFolderTree(folderPath);
+        /* 再度開いたので履歴の先頭へ繰り上げる */
+        await window.api.addFolderHistory(folderPath);
+      });
+
+      historyDropdown.appendChild(item);
+    }
+  }
+
+  historyDropdown.classList.remove('hidden');
+}
+
+/**
+ * 履歴ドロップダウンを閉じる
+ */
+function closeHistoryDropdown() {
+  historyDropdown.classList.add('hidden');
+}
+
+/** ▼ボタンでドロップダウンの開閉をトグル */
+btnOpenHistory.addEventListener('click', (e) => {
+  /* 直後の document クリックハンドラに伝播させない（即閉じを防ぐ） */
+  e.stopPropagation();
+  if (historyDropdown.classList.contains('hidden')) {
+    openHistoryDropdown();
+  } else {
+    closeHistoryDropdown();
+  }
+});
+
+/* ドロップダウン内クリックは外側クリック扱いにしない */
+historyDropdown.addEventListener('click', (e) => e.stopPropagation());
+
+/* 外側クリック・Escapeキーでドロップダウンを閉じる */
+document.addEventListener('click', () => closeHistoryDropdown());
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeHistoryDropdown();
 });
 
 /* A: 手動再スキャン（新着確認ボタン） */
@@ -1039,6 +1133,8 @@ async function restoreSession() {
   /* ルートフォルダのツリーを構築 */
   rootPath = session.rootPath;
   await buildFolderTree(rootPath);
+  /* 復元したルートフォルダも履歴に記録（最近使った順を維持） */
+  await window.api.addFolderHistory(rootPath);
 
   /* 前回開いていたフォルダ/アーカイブを復元 */
   if (session.currentSourcePath) {

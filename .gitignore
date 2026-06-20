@@ -3,3 +3,8 @@ dist/
 .devrelay/
 .devrelay-files/
 .devrelay-output/
+.devrelay-output-history/
+.claude/
+build-log.txt
+build-portable.log
+build-run.log

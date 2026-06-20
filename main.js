@@ -335,6 +335,29 @@ const SESSION_PATH = path.join(app.getPath('userData'), 'session.json');
 /** @type {string} ログファイルのパス */
 const LOG_PATH = path.join(app.getPath('userData'), 'lepafy.log');
 
+/** @type {string} フォルダ履歴の保存先パス（%APPDATA%/lepafy/history.json） */
+const HISTORY_PATH = path.join(app.getPath('userData'), 'history.json');
+
+/** @type {number} 履歴として保持する最大件数（これを超えた古いものから削除） */
+const HISTORY_MAX = 20;
+
+/**
+ * フォルダ履歴を history.json から読み込む
+ * ファイルが無い・壊れている場合は空配列を返す
+ * @returns {string[]} フォルダパスの配列（新しい順）
+ */
+function readFolderHistory() {
+  try {
+    if (!fs.existsSync(HISTORY_PATH)) return [];
+    const data = fs.readFileSync(HISTORY_PATH, 'utf8');
+    const parsed = JSON.parse(data);
+    /* 配列以外（壊れたファイル等）が来ても落とさず空扱いにする */
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 /* ========== IPC ハンドラ（レンダラーからの要求を処理） ========== */
 
 /**
@@ -543,4 +566,50 @@ ipcMain.handle('set-root-path', async (_event, rootPath) => {
     return true;
   }
   return false;
+});
+
+/**
+ * フォルダ履歴を取得する
+ * @returns {string[]} フォルダパスの配列（新しい順、最大 HISTORY_MAX 件）
+ */
+ipcMain.handle('get-folder-history', async () => {
+  return readFolderHistory();
+});
+
+/**
+ * フォルダ履歴にパスを追加して保存する
+ * - 重複パスは追加せず既存エントリを先頭へ移動する（最近使った順を維持）
+ * - 最大 HISTORY_MAX 件を超えた古いエントリは末尾から削除する
+ * @param {string} folderPath - 追加するフォルダの絶対パス
+ * @returns {string[]} 更新後の履歴配列（新しい順）
+ */
+ipcMain.handle('add-folder-history', async (_event, folderPath) => {
+  /* 不正な値は無視して現状の履歴を返す */
+  if (typeof folderPath !== 'string' || folderPath.length === 0) {
+    return readFolderHistory();
+  }
+
+  let history = readFolderHistory();
+
+  /* 既存の同一パスを除去（重複排除）。Windowsは大小文字無視で比較する */
+  const samePath = (a, b) =>
+    process.platform === 'win32'
+      ? a.toLowerCase() === b.toLowerCase()
+      : a === b;
+  history = history.filter((p) => !samePath(p, folderPath));
+
+  /* 先頭へ追加（＝最近使った順の先頭に来る） */
+  history.unshift(folderPath);
+
+  /* 最大件数を超えた分を末尾から切り詰める */
+  if (history.length > HISTORY_MAX) {
+    history = history.slice(0, HISTORY_MAX);
+  }
+
+  /* ファイルへ保存（失敗しても落とさない） */
+  try {
+    fs.writeFileSync(HISTORY_PATH, JSON.stringify(history, null, 2), 'utf8');
+  } catch { /* 履歴書き込み失敗は無視 */ }
+
+  return history;
 });

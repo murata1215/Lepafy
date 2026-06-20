@@ -49,4 +49,10 @@ contextBridge.exposeInMainWorld('api', {
 
   /** 保存済みセッション情報を読み込む */
   loadSession: () => ipcRenderer.invoke('load-session'),
+
+  /** フォルダ履歴（新しい順の配列）を取得する */
+  getFolderHistory: () => ipcRenderer.invoke('get-folder-history'),
+
+  /** フォルダ履歴にパスを追加する（重複排除・先頭移動はメイン側で処理） */
+  addFolderHistory: (folderPath) => ipcRenderer.invoke('add-folder-history', folderPath),
 });

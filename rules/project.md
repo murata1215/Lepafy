@@ -47,6 +47,14 @@
 - ページ送りは saveSession() でデバウンス(300ms)
 - モード変更・終了(beforeunload)時は flushSession() で即時書き込み
 
+## フォルダ履歴
+- %APPDATA%/lepafy/history.json に最近開いたフォルダパスを新しい順で保存（最大20件）
+- 重複パスは追加せず既存を先頭へ繰り上げ（Windowsは大小文字無視で比較）
+- 記録タイミング: 「開く」ダイアログ選択時 / 履歴から選択時 / セッション復元時
+- IPC: get-folder-history（配列取得）/ add-folder-history（追加・先頭移動・切り詰め）
+- UI: ツールバー「📂 開く」横の「▼」でドロップダウン表示、項目はフォルダ名+フルパスの2段
+  - 外側クリック・Escapeで閉じる、空時は「履歴なし」
+
 ## ビルド・配布
 - electron-builder でインストーラー(NSIS) + ポータブル版を生成
 - 出力先: dist/
