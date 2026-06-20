@@ -10,6 +10,8 @@ See `rules/devrelay.md` for DevRelay rules.
 - Electron (v42)
 - node-unrar-js v2 (Wasm) — RAR/CBR展開
 - yauzl v3 — ZIP/CBZ展開
+- electron-builder v26 — ポータブル版.exeビルド
+- カスタムプロトコル `lepafy-img://lepafy/` — 画像配信（Base64非経由）
 
 ## プロジェクト構成
 - `main.js` — メインプロセス（IPC、アーカイブ展開、キャッシュ管理）

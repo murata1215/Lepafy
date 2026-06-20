@@ -109,6 +109,40 @@ body {
   flex-shrink: 0;
 }
 
+/* フォルダ見出し: ラベルと再スキャンボタンを両端に配置 */
+.pane-header-folder {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* ツリー再スキャンボタン */
+#btn-reload-tree {
+  background: transparent;
+  border: none;
+  color: #999;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+
+#btn-reload-tree:hover {
+  background: #444;
+  color: #fff;
+}
+
+/* 再スキャン中の回転アニメーション */
+#btn-reload-tree.spinning {
+  animation: tree-reload-spin 0.8s linear infinite;
+}
+
+@keyframes tree-reload-spin {
+  from { transform: rotate(0); }
+  to { transform: rotate(360deg); }
+}
+
 /* フォルダツリー領域 */
 #folder-tree-container {
   flex: 1;
@@ -281,9 +315,9 @@ body {
 
 /* ===== アーカイブ項目のスタイル ===== */
 
-/* 展開済みアーカイブ: 控えめな灰青（既読） */
+/* 展開済みアーカイブ: 白に近い明るいグレー（既読） */
 .tree-item.tree-archive .tree-label {
-  color: #6a8ea0;
+  color: #c8d4dd;
 }
 
 /* 未展開アーカイブ: 緑で目立たせる + ● マーカー（未読） */

@@ -15,8 +15,22 @@ contextBridge.exposeInMainWorld('api', {
   /** 指定フォルダ内の画像ファイル一覧を取得する */
   getImages: (dirPath) => ipcRenderer.invoke('get-images', dirPath),
 
-  /** 画像ファイルを Base64 データURLとして読み込む */
-  readImage: (filePath) => ipcRenderer.invoke('read-image', filePath),
+  /**
+   * 画像ファイルパスを lepafy-img:// プロトコルのURLに変換する
+   * これを <img src> に指定すれば、Base64 dataURLを介さず直接ファイルを読み込める
+   * @param {string} filePath - 画像ファイルの絶対パス
+   * @returns {string} lepafy-img:// 形式のURL
+   */
+  imageUrl: (filePath) => {
+    /* Windowsパスのバックスラッシュをスラッシュに変換し、特殊文字をエンコードする
+       明示的ホスト "lepafy" を含める: standard:true スキーマで空 authority だと
+       URL パーサがホスト部に Windows ドライブ文字を取り込む等の誤動作が起きるため */
+    const p = filePath.replace(/\\/g, '/');
+    return `lepafy-img://lepafy/${encodeURI(p)}`;
+  },
+
+  /** 画像配信プロトコルが配信を許可するルートパスをメインプロセスに通知する */
+  setRootPath: (rootPath) => ipcRenderer.invoke('set-root-path', rootPath),
 
   /** アーカイブを展開して展開先パスを返す */
   extractArchive: (archivePath) => ipcRenderer.invoke('extract-archive', archivePath),

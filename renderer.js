@@ -30,17 +30,22 @@ let currentIsArchive = false;
 /** @type {boolean} フォルダ間移動処理中かどうか（二重呼び出し防止用） */
 let isNavigating = false;
 
-/** @type {Map<string, string>} 画像先読みキャッシュ（ファイルパス → データURL） */
+/**
+ * @type {Map<string, HTMLImageElement>} 画像先読みキャッシュ
+ * 値は img.decode() 済みの HTMLImageElement（表示時はcloneNode）
+ * dataURLではなく lepafy-img:// プロトコル経由のURLを src に持つため、
+ * V8ヒープを文字列で圧迫せず Chromium の画像キャッシュを直接利用できる
+ */
 const imageCache = new Map();
 
-/** 先読みするページ数（現在ページの前方） */
-const PRELOAD_AHEAD = 10;
+/** 先読みするページ数（現在ページの前方） — 高速スクロールに耐えるため拡大 */
+const PRELOAD_AHEAD = 20;
 
 /** キャッシュに残すページ数（現在ページの後方） */
-const PRELOAD_BEHIND = 3;
+const PRELOAD_BEHIND = 5;
 
 /** キャッシュ保持範囲（前後合計、これを超えた分は破棄） */
-const CACHE_WINDOW = 20;
+const CACHE_WINDOW = 40;
 
 /* ===== DOM要素の取得 ===== */
 const btnOpen = document.getElementById('btn-open');
@@ -50,6 +55,7 @@ const pageInfo = document.getElementById('page-info');
 const chkSpread = document.getElementById('chk-spread');
 const chkRtl = document.getElementById('chk-rtl');
 const folderTree = document.getElementById('folder-tree');
+const btnReloadTree = document.getElementById('btn-reload-tree');
 const fileList = document.getElementById('file-list');
 const viewerContent = document.getElementById('viewer-content');
 const pageLeft = document.getElementById('page-left');
@@ -67,6 +73,18 @@ btnOpen.addEventListener('click', async () => {
   }
 });
 
+/* A: 手動再スキャン（新着確認ボタン） */
+btnReloadTree.addEventListener('click', refreshTree);
+
+/* B: ウィンドウ復帰（フォーカス取得）時に自動再スキャン */
+let lastFocusRefresh = 0;
+window.addEventListener('focus', () => {
+  const now = Date.now();
+  if (now - lastFocusRefresh < 1000) return;  // 連続発火を抑止
+  lastFocusRefresh = now;
+  refreshTree();
+});
+
 /** 前のページへ戻る */
 btnPrev.addEventListener('click', () => navigatePage(-1));
 
@@ -77,14 +95,15 @@ btnNext.addEventListener('click', () => navigatePage(1));
 chkSpread.addEventListener('change', (e) => {
   spreadMode = e.target.checked;
   showPages();
-  saveSession();
+  /* モード変更は明示的な操作なので即時保存（デバウンスを使わない） */
+  flushSession();
 });
 
 /** 読み方向切替 */
 chkRtl.addEventListener('change', (e) => {
   rtlMode = e.target.checked;
   showPages();
-  saveSession();
+  flushSession();
 });
 
 /* ===== キーボードナビゲーション ===== */
@@ -129,6 +148,9 @@ document.addEventListener('keydown', (e) => {
  * @param {string} dirPath - ルートディレクトリのパス
  */
 async function buildFolderTree(dirPath) {
+  /* 画像配信プロトコルの許可ルートをメインプロセスに通知（パストラバーサル対策） */
+  await window.api.setRootPath(dirPath);
+
   folderTree.innerHTML = '';
   const rootItem = await createTreeItem({
     path: dirPath,
@@ -137,6 +159,65 @@ async function buildFolderTree(dirPath) {
     isArchive: false,
   }, 0, true);
   folderTree.appendChild(rootItem);
+}
+
+/** @type {boolean} ツリー再スキャン実行中フラグ（多重実行防止） */
+let isRefreshingTree = false;
+
+/**
+ * フォルダツリーを再スキャンして新着・削除を反映する。
+ * 展開状態・選択状態・スクロール位置を保ったまま、読み込み済みフォルダの
+ * 直下だけを最新のディレクトリ内容と差分更新する。ビューアには触れない。
+ */
+async function refreshTree() {
+  if (!rootPath || isRefreshingTree) return;
+  isRefreshingTree = true;
+  btnReloadTree.classList.add('spinning');
+  try {
+    /* フォルダ行のみ対象（アーカイブ内部は実行中に変化しないため除外） */
+    const folderRows = folderTree.querySelectorAll('.tree-item:not(.tree-archive)');
+    for (const row of folderRows) {
+      if (!row.isConnected) continue;                 // 親reconcileで削除済みはスキップ
+      const childrenEl = row.nextElementSibling;
+      if (!childrenEl || !childrenEl.classList.contains('tree-children')) continue;
+      if (childrenEl.children.length === 0) continue; // 未読み込みフォルダはクリック時に最新化
+      await reconcileFolderChildren(row, childrenEl);
+    }
+  } finally {
+    btnReloadTree.classList.remove('spinning');
+    isRefreshingTree = false;
+  }
+}
+
+/**
+ * 1フォルダの直下の子を最新ディレクトリ内容に差分更新する。
+ * 消えた項目は除去、新着は生成して追加、既存は再利用して並べ替え。
+ * @param {HTMLElement} parentRow - 親フォルダ行（.tree-item）
+ * @param {HTMLElement} childrenEl - 親フォルダの子コンテナ（.tree-children）
+ */
+async function reconcileFolderChildren(parentRow, childrenEl) {
+  const dirPath = parentRow.dataset.path;
+  const parentDepth = Number(parentRow.dataset.depth) || 0;
+  const entries = await window.api.readDir(dirPath);   // isCached/mtimeMs も再計算される
+
+  /* 既存の子コンテナを path で引けるよう map 化（snapshot） */
+  const existing = new Map();
+  for (const container of [...childrenEl.children]) {
+    const r = container.querySelector(':scope > .tree-item');
+    if (r) existing.set(r.dataset.path, container);
+  }
+  const entryPaths = new Set(entries.map((e) => e.path));
+
+  /* 消えた項目を除去 */
+  for (const [p, container] of existing) {
+    if (!entryPaths.has(p)) container.remove();
+  }
+  /* 最新の並び順で再構築（既存は再利用＝展開状態を保持、新着のみ生成） */
+  for (const entry of entries) {
+    let container = existing.get(entry.path);
+    if (!container) container = await createTreeItem(entry, parentDepth + 1, false);
+    childrenEl.appendChild(container);  // 既存ノードは移動するだけ
+  }
 }
 
 /**
@@ -163,6 +244,7 @@ async function createTreeItem(entry, depth, expanded) {
 
   row.dataset.path = entryPath;
   row.style.paddingLeft = (depth * 16 + 6) + 'px';
+  row.dataset.depth = String(depth);  // 再スキャン時に子の深さを算出するため保持
 
   const toggle = document.createElement('span');
   toggle.className = 'tree-toggle';
@@ -395,26 +477,20 @@ async function showPages() {
   updateFileListSelection();
 
   if (spreadMode) {
-    /* 見開きモード: 2ページ表示 */
+    /* 見開きモード: 2ページ表示（読み込みは並列化して待ち時間を半減） */
     const secondPage = currentPage + 1 < imageFiles.length ? currentPage + 1 : null;
+    /* rtlMode によって左右どちらが現在ページかを決める */
+    const firstSlot = rtlMode ? pageRight : pageLeft;
+    const secondSlot = rtlMode ? pageLeft : pageRight;
 
-    if (rtlMode) {
-      /* 右→左: 右側に現在ページ、左側に次ページ */
-      await loadPageSlot(pageRight, imageFiles[currentPage].path);
-      if (secondPage !== null) {
-        await loadPageSlot(pageLeft, imageFiles[secondPage].path);
-      } else {
-        pageLeft.innerHTML = '';
-      }
+    const tasks = [loadPageSlot(firstSlot, imageFiles[currentPage].path)];
+    if (secondPage !== null) {
+      tasks.push(loadPageSlot(secondSlot, imageFiles[secondPage].path));
     } else {
-      /* 左→右: 左側に現在ページ、右側に次ページ */
-      await loadPageSlot(pageLeft, imageFiles[currentPage].path);
-      if (secondPage !== null) {
-        await loadPageSlot(pageRight, imageFiles[secondPage].path);
-      } else {
-        pageRight.innerHTML = '';
-      }
+      secondSlot.innerHTML = '';
     }
+    /* 2枚を Promise.all で並列待ち（直列 await より体感が明らかに速い） */
+    await Promise.all(tasks);
 
     /* ページ情報表示 */
     const endPage = secondPage !== null ? secondPage + 1 : currentPage + 1;
@@ -434,19 +510,29 @@ async function showPages() {
 }
 
 /**
- * キャッシュから画像を取得する。キャッシュになければ読み込んでキャッシュに保存する
+ * キャッシュから画像を取得する。キャッシュになければ読み込んでデコードまで済ませる
+ * 戻り値の HTMLImageElement は decode 済みなので、cloneNode して DOM に挿入すれば
+ * Chromium側で再デコードが走らず瞬時に描画される
  * @param {string} filePath - 画像ファイルのパス
- * @returns {Promise<string|null>} データURL
+ * @returns {Promise<HTMLImageElement|null>} デコード済み Image、失敗時は null
  */
 async function getCachedImage(filePath) {
-  if (imageCache.has(filePath)) {
-    return imageCache.get(filePath);
+  const cached = imageCache.get(filePath);
+  if (cached) return cached;
+
+  const img = new Image();
+  img.src = window.api.imageUrl(filePath);
+  try {
+    /* デコードを事前に済ませることで、表示時のデコード待ちを排除する */
+    await img.decode();
+  } catch (err) {
+    /* 壊れた画像／プロトコル配信失敗時はキャッシュせず null を返す
+       DevTools (Ctrl+Shift+I) でエラー内容を確認できるようコンソールに出す */
+    console.error('[Lepafy] image decode failed:', filePath, err);
+    return null;
   }
-  const dataUrl = await window.api.readImage(filePath);
-  if (dataUrl) {
-    imageCache.set(filePath, dataUrl);
-  }
-  return dataUrl;
+  imageCache.set(filePath, img);
+  return img;
 }
 
 /**
@@ -495,17 +581,17 @@ function evictDistantCache() {
 
 /**
  * 指定のページスロットに画像を読み込んで表示する（キャッシュ優先）
+ * デコード済み Image を cloneNode して挿入することで描画が瞬時になる
  * @param {HTMLElement} slot - 表示先のDOM要素
  * @param {string} filePath - 画像ファイルのパス
  */
 async function loadPageSlot(slot, filePath) {
-  const dataUrl = await getCachedImage(filePath);
-  if (dataUrl) {
-    slot.innerHTML = '';
-    const img = document.createElement('img');
-    img.src = dataUrl;
+  const cached = await getCachedImage(filePath);
+  if (cached) {
+    /* 同じ Image を複数スロットに置けないため cloneNode する */
+    const img = cached.cloneNode();
     img.draggable = false;
-    slot.appendChild(img);
+    slot.replaceChildren(img);
   }
 }
 
@@ -718,23 +804,37 @@ function updateTreeSelection(targetPath) {
 }
 
 /**
- * ファイル一覧の選択状態を現在のページに合わせて更新する
+ * @type {number[]} 直近で selected クラスを付けたファイル項目のインデックス一覧
+ * 高速スクロール時、毎回全 .file-item を querySelectorAll/forEach するのを避け、
+ * 前回と今回の差分だけを class 操作することで大量ファイル時の負荷を抑える
+ */
+let lastSelectedIndices = [];
+
+/**
+ * ファイル一覧の選択状態を現在のページに合わせて更新する（差分更新版）
  */
 function updateFileListSelection() {
-  document.querySelectorAll('.file-item').forEach((el) => {
-    const idx = parseInt(el.dataset.index);
-    if (spreadMode) {
-      /* 見開き時は現在ページと次ページの2つをハイライト */
-      el.classList.toggle('selected', idx === currentPage || idx === currentPage + 1);
-    } else {
-      el.classList.toggle('selected', idx === currentPage);
-    }
-  });
+  /* 前回ハイライトを外す */
+  for (const idx of lastSelectedIndices) {
+    const el = fileList.children[idx];
+    if (el && el.classList) el.classList.remove('selected');
+  }
+  /* 今回ハイライトすべきインデックスを算出 */
+  const next = spreadMode
+    ? (currentPage + 1 < imageFiles.length
+        ? [currentPage, currentPage + 1]
+        : [currentPage])
+    : [currentPage];
+  for (const idx of next) {
+    const el = fileList.children[idx];
+    if (el && el.classList) el.classList.add('selected');
+  }
+  lastSelectedIndices = next;
 
-  /* 選択されたファイルが見えるようにスクロール */
-  const selected = document.querySelector('.file-item.selected');
-  if (selected) {
-    selected.scrollIntoView({ block: 'nearest' });
+  /* 選択されたファイルが見えるようにスクロール（先頭の1件のみ） */
+  if (next.length > 0) {
+    const el = fileList.children[next[0]];
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
   }
 }
 
@@ -820,48 +920,103 @@ document.getElementById('viewer').addEventListener('dblclick', async () => {
   await window.api.toggleFullscreen();
 });
 
-/* ===== マウスホイールでページ送り ===== */
+/* ===== マウスホイールでページ送り（累積デルタ方式） ===== */
 (function setupWheelNavigation() {
-  /** @type {number} 最後にホイールでページ送りした時刻（高速スクロール防止用） */
-  let lastWheelTime = 0;
+  /**
+   * 累積ホイールデルタ方式:
+   * deltaY を貯めていき、閾値(WHEEL_THRESHOLD)を超えるごとに1ページ送る。
+   * 回転量に追従して連続でページが進むため Leeyes 等のネイティブビューアに近い操作感になる。
+   * 最低間隔(WHEEL_MIN_GAP_MS)で連射を抑え、停止後(WHEEL_RESET_MS)に累積をリセットする。
+   */
 
-  /** 連続スクロール防止のクールダウン（ミリ秒） */
-  const WHEEL_COOLDOWN = 150;
+  /** @type {number} ホイール回転量の累積 */
+  let accumulatedDelta = 0;
+
+  /** @type {number} 最後にページ送りした時刻 */
+  let lastWheelAt = 0;
+
+  /** 1ページ送るのに必要な累積デルタ量（普通のマウスホイール1ノッチ = 100相当） */
+  const WHEEL_THRESHOLD = 100;
+
+  /** ホイールが止まったとみなして累積をリセットするまでの時間（ミリ秒） */
+  const WHEEL_RESET_MS = 200;
+
+  /** ページ送りの最低間隔（ミリ秒、連射時の描画パイプラインを守るレートリミット） */
+  const WHEEL_MIN_GAP_MS = 40;
 
   document.getElementById('viewer').addEventListener('wheel', (e) => {
     e.preventDefault();
 
-    const now = Date.now();
-    if (now - lastWheelTime < WHEEL_COOLDOWN) return;
-    lastWheelTime = now;
+    const now = performance.now();
+    /* 一定時間ホイールが停止していたら累積をリセット（逆方向誤発火を防ぐ） */
+    if (now - lastWheelAt > WHEEL_RESET_MS) accumulatedDelta = 0;
+    accumulatedDelta += e.deltaY;
 
-    /* deltaY > 0: 下回転（次ページ）、deltaY < 0: 上回転（前ページ） */
-    if (e.deltaY > 0) {
-      navigatePage(1);
-    } else if (e.deltaY < 0) {
-      navigatePage(-1);
+    /* 閾値を超えるたびにページ送り。1イベントで複数ページ進むこともある */
+    while (Math.abs(accumulatedDelta) >= WHEEL_THRESHOLD) {
+      if (now - lastWheelAt < WHEEL_MIN_GAP_MS) break;
+      const dir = accumulatedDelta > 0 ? 1 : -1;
+      accumulatedDelta -= dir * WHEEL_THRESHOLD;
+      navigatePage(dir);
+      lastWheelAt = now;
     }
   }, { passive: false });
 })();
 
 /* ===== セッション保存・復元 ===== */
 
-/**
- * 現在の閲覧状態をセッションファイルに保存する
- * ページ送り・フォルダ切替・モード変更のたびに呼ばれる
- */
-function saveSession() {
-  if (!rootPath) return;
+/** @type {number|null} saveSession デバウンス用タイマーID */
+let saveSessionTimer = null;
 
-  window.api.saveSession({
+/** デバウンス時間（ミリ秒） — 高速スクロール時の同期 writeFileSync 連発を防ぐ */
+const SAVE_SESSION_DEBOUNCE_MS = 300;
+
+/**
+ * セッション保存ペイロードを組み立てる
+ * @returns {Object|null} 保存対象、未初期化時は null
+ */
+function buildSessionPayload() {
+  if (!rootPath) return null;
+  return {
     rootPath,
     currentSourcePath,
     currentIsArchive,
     currentPage,
     spreadMode,
     rtlMode,
-  });
+  };
 }
+
+/**
+ * 現在の閲覧状態をセッションファイルに保存する（デバウンス版）
+ * ページ送りのたびに呼んでも、最後の呼び出しから 300ms 経過後に1回だけ書き込む
+ */
+function saveSession() {
+  const payload = buildSessionPayload();
+  if (!payload) return;
+  if (saveSessionTimer) clearTimeout(saveSessionTimer);
+  saveSessionTimer = setTimeout(() => {
+    window.api.saveSession(payload);
+    saveSessionTimer = null;
+  }, SAVE_SESSION_DEBOUNCE_MS);
+}
+
+/**
+ * 保存待ちのセッションを即座にフラッシュする
+ * モード変更時やアプリ終了時に呼び、デバウンス中の書き込みを取りこぼさない
+ */
+function flushSession() {
+  if (saveSessionTimer) {
+    clearTimeout(saveSessionTimer);
+    saveSessionTimer = null;
+  }
+  const payload = buildSessionPayload();
+  if (!payload) return;
+  window.api.saveSession(payload);
+}
+
+/* アプリ終了時にデバウンス中の保存を取りこぼさない */
+window.addEventListener('beforeunload', flushSession);
 
 /**
  * 前回のセッションを復元する

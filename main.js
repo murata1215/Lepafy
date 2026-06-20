@@ -3,7 +3,7 @@
  * アプリケーションのライフサイクル管理とウィンドウ生成を担当する
  * アーカイブ（ZIP/CBZ/RAR/CBR）の自動展開機能を含む
  */
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, protocol } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const yauzl = require('yauzl');
@@ -14,6 +14,72 @@ let mainWindow = null;
 
 /** @type {string} アーカイブ展開用の永続キャッシュディレクトリ（%APPDATA%/lepafy/cache） */
 const CACHE_BASE = path.join(app.getPath('userData'), 'cache');
+
+/**
+ * @type {string|null} 画像配信プロトコルが配信を許可するルートディレクトリ
+ * レンダラーから `set-root-path` で通知され、こことCACHE_BASE配下のみ配信する
+ */
+let allowedRoot = null;
+
+/**
+ * lepafy-img:// プロトコルで指定パスを配信してよいか判定する
+ * - %APPDATA%/lepafy/cache 配下（アーカイブ展開先）
+ * - allowedRoot（ユーザーが開いたルートフォルダ）配下
+ * のいずれかに含まれる場合のみ許可する（パストラバーサル対策）
+ * @param {string} absPath - 絶対パス（normalize済み想定）
+ * @returns {boolean} 配信を許可する場合 true
+ */
+function isAllowedImagePath(absPath) {
+  /* Windowsは大文字小文字を無視するため小文字化して比較する */
+  const cmp = process.platform === 'win32' ? absPath.toLowerCase() : absPath;
+  const cacheNorm = process.platform === 'win32'
+    ? path.normalize(CACHE_BASE).toLowerCase()
+    : path.normalize(CACHE_BASE);
+  if (cmp.startsWith(cacheNorm)) return true;
+  if (allowedRoot) {
+    const rootNorm = process.platform === 'win32'
+      ? path.normalize(allowedRoot).toLowerCase()
+      : path.normalize(allowedRoot);
+    if (cmp.startsWith(rootNorm)) return true;
+  }
+  return false;
+}
+
+/**
+ * 画像ファイルの拡張子から MIME タイプを返す
+ * @param {string} filePath - 画像ファイルのパス
+ * @returns {string} MIME タイプ
+ */
+function mimeFromExt(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  const map = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.bmp': 'image/bmp',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.avif': 'image/avif',
+  };
+  return map[ext] || 'application/octet-stream';
+}
+
+/**
+ * カスタム画像配信プロトコル lepafy-img:// を特権スキーマとして登録する
+ * これにより fetch API / streaming / 同一オリジン扱いが有効になり、
+ * dataURL を介さずに img.src で直接ファイルを参照できる
+ * （app.whenReady() より前に呼ぶ必要がある）
+ */
+protocol.registerSchemesAsPrivileged([{
+  scheme: 'lepafy-img',
+  privileges: {
+    standard: true,
+    secure: true,
+    supportFetchAPI: true,
+    stream: true,
+    bypassCSP: true,
+  },
+}]);
 
 /** @type {Set<string>} 対応するアーカイブ拡張子 */
 const ARCHIVE_EXTS = new Set(['.zip', '.cbz', '.rar', '.cbr']);
@@ -47,6 +113,47 @@ function createWindow() {
 app.whenReady().then(() => {
   /* キャッシュディレクトリを作成（既存なら何もしない） */
   fs.mkdirSync(CACHE_BASE, { recursive: true });
+
+  /**
+   * lepafy-img:// プロトコルのハンドラを登録
+   * URL形式: lepafy-img://lepafy/<encoded-absolute-path>
+   *   - 固定ホスト "lepafy" は standard:true スキーマでの URL パース安定化のため
+   *   - 旧 Base64 dataURL方式と比べ、IPC文字列転送・Base64エンコード/デコードが
+   *     一切走らないため高速スクロール時の体感速度が大幅に向上する
+   */
+  protocol.handle('lepafy-img', async (request) => {
+    try {
+      const url = new URL(request.url);
+      /* ホスト検証: imageUrl() が生成する "lepafy" 固定ホスト以外は拒否 */
+      if (url.host !== 'lepafy') {
+        return new Response('Bad host', { status: 400 });
+      }
+      let filePath = decodeURIComponent(url.pathname);
+      /* Windowsの "/C:/Users/..." → "C:/Users/..." 形式に補正 */
+      if (process.platform === 'win32' && /^\/[A-Za-z]:/.test(filePath)) {
+        filePath = filePath.slice(1);
+      }
+      const norm = path.normalize(filePath);
+
+      /* 配信許可判定（パストラバーサル対策） */
+      if (!isAllowedImagePath(norm)) {
+        return new Response('Forbidden', { status: 403 });
+      }
+      /* fs.promises.readFile で非同期に読み出してそのまま Response として返す */
+      const data = await fs.promises.readFile(norm);
+      return new Response(data, {
+        status: 200,
+        headers: {
+          'Content-Type': mimeFromExt(norm),
+          'Cache-Control': 'no-cache',
+        },
+      });
+    } catch (err) {
+      /* 配信失敗はメインプロセスのコンソールに残す（npm start のターミナルで見える） */
+      console.error('[lepafy-img] failed:', request.url, err);
+      return new Response('Error: ' + err.message, { status: 500 });
+    }
+  });
 
   createWindow();
 });
@@ -426,27 +533,14 @@ ipcMain.handle('get-siblings', async (_event, itemPath) => {
 });
 
 /**
- * ファイルパスから画像データを Base64 で読み込む
- * セキュリティ上、file:// プロトコルを使わず Base64 データURLで渡す
- * @param {string} filePath - 画像ファイルのパス
- * @returns {string} data URL 形式の画像データ
+ * 画像配信プロトコルが配信を許可するルートパスを設定する
+ * レンダラーがルートフォルダ選択 or セッション復元の直後に呼び出す
+ * @param {string} rootPath - ルートディレクトリ（ユーザーが選択したフォルダ）
  */
-ipcMain.handle('read-image', async (_event, filePath) => {
-  try {
-    const ext = path.extname(filePath).toLowerCase();
-    const mimeMap = {
-      '.jpg': 'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.png': 'image/png',
-      '.bmp': 'image/bmp',
-      '.gif': 'image/gif',
-      '.webp': 'image/webp',
-      '.avif': 'image/avif',
-    };
-    const mime = mimeMap[ext] || 'image/jpeg';
-    const data = fs.readFileSync(filePath);
-    return `data:${mime};base64,${data.toString('base64')}`;
-  } catch {
-    return null;
+ipcMain.handle('set-root-path', async (_event, rootPath) => {
+  if (typeof rootPath === 'string' && rootPath.length > 0) {
+    allowedRoot = rootPath;
+    return true;
   }
+  return false;
 });

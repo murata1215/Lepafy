@@ -31,7 +31,11 @@
     <div id="left-pane">
       <!-- リサイズ用ドラッグ境界: フォルダツリーとファイル一覧の間 -->
       <div id="folder-tree-container">
-        <div class="pane-header">フォルダ</div>
+        <div class="pane-header pane-header-folder">
+          <span>フォルダ</span>
+          <!-- ツリー再スキャン（新着確認）ボタン -->
+          <button id="btn-reload-tree" title="フォルダツリーを再スキャン（新着を確認）">🔄</button>
+        </div>
         <div id="folder-tree"></div>
       </div>
       <div id="left-divider" class="divider-h"></div>

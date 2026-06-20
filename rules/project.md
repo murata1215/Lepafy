@@ -18,8 +18,15 @@
 - 展開済み: 控えめな灰青(#6a8ea0)
 
 ## ページ表示
-- 画像先読みキャッシュ: Map<filePath, dataURL>、前方10ページ+後方3ページをプリロード
-- キャッシュ保持範囲: 現在ページ前後20ページ、超過分は自動破棄
+- 画像配信: カスタムプロトコル `lepafy-img://` 経由（Base64 dataURL は廃止）
+  - メイン側 `protocol.handle('lepafy-img', ...)` で fs.promises.readFile してそのまま Response 返却
+  - allowedRoot（ユーザー選択ルート）と CACHE_BASE 配下のみ配信（パストラバーサル対策）
+  - レンダラーは `window.api.imageUrl(path)` で `lepafy-img://lepafy/<encoded-path>` を生成
+  - ホスト部に明示 `lepafy` を指定（空 authority だと Chromium URL パーサが Windows ドライブ文字 `C:` をホスト:ポートと誤認するため）
+- 画像先読みキャッシュ: Map<filePath, HTMLImageElement>、img.decode() 済みで保持
+  - 前方20ページ+後方5ページをプリロード、キャッシュ保持範囲は前後40ページ
+- 表示はキャッシュ済み Image を cloneNode して挿入（再デコードを回避）
+- 見開きモードは Promise.all で2枚並列読み込み（直列 await は廃止）
 - フォルダ切替時にキャッシュをクリア
 
 ## フルスクリーン
@@ -30,6 +37,15 @@
 - moveToSibling: rootPathまで階層を遡って兄弟を探す
 - isNavigating ロックで二重呼び出し防止
 - サブフォルダ探索はするがアーカイブ展開はしない（重いため）
+
+## ホイール送り
+- 累積デルタ方式: deltaY を貯めて閾値(WHEEL_THRESHOLD=100)を超えるごとに1ページ送る
+- 停止判定 200ms、最低間隔 40ms（高速回転時の連射上限とパイプライン保護）
+- 旧クールダウン方式(150ms固定)は廃止
+
+## セッション保存
+- ページ送りは saveSession() でデバウンス(300ms)
+- モード変更・終了(beforeunload)時は flushSession() で即時書き込み
 
 ## ビルド・配布
 - electron-builder でインストーラー(NSIS) + ポータブル版を生成
