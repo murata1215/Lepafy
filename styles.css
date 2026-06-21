@@ -149,6 +149,43 @@ body {
   text-align: center;
 }
 
+/* ===== ドライブ使用率インジケータ ===== */
+/* ドライブ名・容量テキスト・ミニバーを横並びにまとめる */
+#disk-usage {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #999;
+  white-space: nowrap;
+}
+
+/* hidden クラスでフォルダ未選択・取得失敗時に隠す */
+#disk-usage.hidden {
+  display: none;
+}
+
+/* ミニプログレスバーの外枠（未使用部分の背景色）
+   暗い背景＋輪郭線でツールバーから浮かせ、バー全体の範囲を明確にする */
+.disk-bar {
+  width: 80px;
+  height: 8px;
+  background: #1a1a1a;          /* 周囲(#2d2d2d)より暗くしてコントラストを出す */
+  border: 1px solid #666;       /* バーの輪郭を明示 */
+  border-radius: 4px;
+  overflow: hidden;             /* fill が角丸からはみ出さないように */
+}
+
+/* バーの使用済み部分。幅と色は JS から style 属性で動的に設定する
+   span はインライン要素のままだと width/height が効かないため block 化する */
+.disk-bar-fill {
+  display: block;               /* インライン解除（これが無いと高さ・幅が無視される） */
+  height: 100%;
+  min-height: 100%;             /* 念のため高さを確保 */
+  border-radius: 4px;
+  transition: width 0.3s ease;  /* 使用率変化を滑らかにアニメーション */
+}
+
 #page-info {
   font-size: 13px;
   min-width: 80px;

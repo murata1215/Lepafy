@@ -55,4 +55,7 @@ contextBridge.exposeInMainWorld('api', {
 
   /** フォルダ履歴にパスを追加する（重複排除・先頭移動はメイン側で処理） */
   addFolderHistory: (folderPath) => ipcRenderer.invoke('add-folder-history', folderPath),
+
+  /** 指定フォルダが属するドライブの使用状況を取得する（容量・使用率） */
+  getDiskUsage: (targetPath) => ipcRenderer.invoke('get-disk-usage', targetPath),
 });

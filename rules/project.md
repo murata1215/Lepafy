@@ -55,6 +55,17 @@
 - UI: ツールバー「📂 開く」横の「▼」でドロップダウン表示、項目はフォルダ名+フルパスの2段
   - 外側クリック・Escapeで閉じる、空時は「履歴なし」
 
+## ドライブ使用率インジケータ
+- ツールバー「📂 開く」群の右側に、開いているフォルダが属するドライブの使用率を表示
+- IPC `get-disk-usage`: `fs.promises.statfs(targetPath)` で取得（追加依存なし・クロスプラットフォーム）
+  - 戻り値 `{ total, free, used, usedPercent, driveName }`（容量はバイト、free は bavail ベース）
+  - driveName は `path.parse(targetPath).root`（例: `D:\`）、取得失敗時は null
+- 表示: `💾 D: 使用量/総量 (使用率%)` + ミニプログレスバー
+  - 使用率で色分け: <70% 緑(#4caf50) / 70〜90% 黄(#ff9800) / >90% 赤(#f44336)
+  - fill は `display:block` 必須（span はインラインだと width/height が無視される）
+  - inline style に `!important` を付け CSS 上書きを防止、`.disk-bar` は暗背景+ボーダーで視認性確保
+- 更新タイミング: buildFolderTree() 末尾（開く・履歴・セッション復元の全経路をカバー）
+
 ## ビルド・配布
 - electron-builder でインストーラー(NSIS) + ポータブル版を生成
 - 出力先: dist/

@@ -51,6 +51,7 @@ const CACHE_WINDOW = 40;
 const btnOpen = document.getElementById('btn-open');
 const btnOpenHistory = document.getElementById('btn-open-history');
 const historyDropdown = document.getElementById('history-dropdown');
+const diskUsage = document.getElementById('disk-usage');
 const btnPrev = document.getElementById('btn-prev');
 const btnNext = document.getElementById('btn-next');
 const pageInfo = document.getElementById('page-info');
@@ -253,6 +254,72 @@ async function buildFolderTree(dirPath) {
     isArchive: false,
   }, 0, true);
   folderTree.appendChild(rootItem);
+
+  /* ツールバーのドライブ使用率を更新（開く・履歴・セッション復元の全経路がここを通る） */
+  await updateDiskUsage(dirPath);
+}
+
+/* ===== ドライブ使用率インジケータ ===== */
+
+/**
+ * バイト数を人間が読みやすい単位（GB / TB）に変換する
+ * 1024 ベースで計算し、小数1桁で丸める。1TB 以上は TB、それ未満は GB 表記。
+ * @param {number} bytes - バイト数
+ * @returns {string} 例: "1.2TB" / "512.0GB"
+ */
+function formatBytes(bytes) {
+  const GB = 1024 ** 3;
+  const TB = 1024 ** 4;
+  if (bytes >= TB) {
+    return (bytes / TB).toFixed(1) + 'TB';
+  }
+  return (bytes / GB).toFixed(1) + 'GB';
+}
+
+/**
+ * 指定フォルダが属するドライブの使用率をツールバーに表示する
+ * 取得できなかった場合（null）はインジケータを非表示にする
+ * @param {string} folderPath - 対象フォルダの絶対パス
+ */
+async function updateDiskUsage(folderPath) {
+  const usage = await window.api.getDiskUsage(folderPath);
+
+  /* 取得失敗時は隠して終了 */
+  if (!usage) {
+    diskUsage.classList.add('hidden');
+    diskUsage.innerHTML = '';
+    return;
+  }
+
+  /* 使用率を 0〜100 の整数に丸める */
+  const percent = Math.round(usage.usedPercent);
+
+  /* 使用率に応じてバーの色を切り替える（緑 → 黄 → 赤） */
+  let barColor;
+  if (percent > 90) {
+    barColor = '#f44336';       // 90%超: 赤（残量わずか）
+  } else if (percent >= 70) {
+    barColor = '#ff9800';       // 70〜90%: 黄（注意）
+  } else {
+    barColor = '#4caf50';       // 70%未満: 緑（余裕あり）
+  }
+
+  /* ドライブ名: Windows は "D:\\" 形式で末尾の区切りを除いて "D:" を表示する */
+  const driveLabel = usage.driveName
+    ? usage.driveName.replace(/[\\/]+$/, '')
+    : '';
+
+  /* 💾 ドライブ名 使用量/総量 (使用率%) ミニバー の順で描画
+     fill の width/background は inline style に !important を付け、
+     CSS 側の指定に確実に勝たせる（色が透明になる問題の保険） */
+  diskUsage.innerHTML =
+    `<span>💾 ${driveLabel} ${formatBytes(usage.used)} / ${formatBytes(usage.total)} (${percent}%)</span>` +
+    `<span class="disk-bar"><span class="disk-bar-fill" style="width:${percent}% !important;background:${barColor} !important;"></span></span>`;
+
+  /* マウスオーバーで空き容量も確認できるようツールチップを付ける */
+  diskUsage.title = `空き ${formatBytes(usage.free)} / 全体 ${formatBytes(usage.total)}`;
+
+  diskUsage.classList.remove('hidden');
 }
 
 /** @type {boolean} ツリー再スキャン実行中フラグ（多重実行防止） */

@@ -577,6 +577,52 @@ ipcMain.handle('get-folder-history', async () => {
 });
 
 /**
+ * 指定パスが属するドライブの使用状況を取得する
+ * fs.promises.statfs を使うため追加依存は不要（Node標準API）
+ * @param {string} targetPath - 対象フォルダの絶対パス（このパスが乗っているドライブを調べる）
+ * @returns {Promise<{total: number, free: number, used: number, usedPercent: number, driveName: string}|null>}
+ *   - total: ドライブ総容量（バイト）
+ *   - free: 空き容量（バイト、一般ユーザーが使える量 = bavail ベース）
+ *   - used: 使用容量（バイト = total - free）
+ *   - usedPercent: 使用率（0〜100 の数値）
+ *   - driveName: ドライブ名（Windows なら "D:\" 形式のルート）
+ *   取得失敗時は null
+ */
+ipcMain.handle('get-disk-usage', async (_event, targetPath) => {
+  /* 不正な引数は早期に null を返す */
+  if (typeof targetPath !== 'string' || targetPath.length === 0) {
+    return null;
+  }
+
+  try {
+    /* statfs はファイルシステムの統計情報を返す:
+       - bsize:  ブロックサイズ（バイト）
+       - blocks: 総ブロック数
+       - bfree:  空きブロック数（管理領域含む）
+       - bavail: 非特権ユーザーが使える空きブロック数（実用的な空き容量） */
+    const stats = await fs.promises.statfs(targetPath);
+
+    const blockSize = stats.bsize;
+    const total = stats.blocks * blockSize;
+    /* 実際にユーザーが使える空き容量として bavail を採用する */
+    const free = stats.bavail * blockSize;
+    const used = total - free;
+
+    /* 使用率（0除算を避けつつ 0〜100 に丸める） */
+    const usedPercent = total > 0 ? (used / total) * 100 : 0;
+
+    /* ドライブ名: Windows は "D:\\" 形式のルートを使う。
+       path.parse(...).root は targetPath が属するドライブのルートを返す */
+    const driveName = path.parse(targetPath).root;
+
+    return { total, free, used, usedPercent, driveName };
+  } catch {
+    /* 存在しないパス・アクセス不可などは null（呼び出し側で非表示にする） */
+    return null;
+  }
+});
+
+/**
  * フォルダ履歴にパスを追加して保存する
  * - 重複パスは追加せず既存エントリを先頭へ移動する（最近使った順を維持）
  * - 最大 HISTORY_MAX 件を超えた古いエントリは末尾から削除する

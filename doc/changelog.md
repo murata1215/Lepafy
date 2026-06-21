@@ -1,5 +1,29 @@
 # Changelog
 
+## v1.1.0 (2026-06-21) — ドライブ使用率インジケータ
+
+### 新機能
+- ツールバーに、開いているフォルダが属するドライブの使用率を表示
+  - `💾 D: 1.2TB / 2.0TB (60%)` + ミニプログレスバー
+  - 使用率で色分け（<70% 緑 / 70〜90% 黄 / >90% 赤）、ツールチップに空き容量
+  - 開く・履歴・セッション復元のいずれの経路でも更新
+
+### 変更詳細
+- `main.js`
+  - IPC `get-disk-usage` を追加。`fs.promises.statfs()` で容量取得（追加依存なし）
+    - `{ total, free, used, usedPercent, driveName }` を返す（free は bavail ベース）
+    - driveName は `path.parse(targetPath).root`、失敗時は null
+- `preload.js`
+  - `getDiskUsage(targetPath)` を contextBridge で公開
+- `index.html`
+  - `#open-group` 直後に `<span id="disk-usage">` を追加
+- `styles.css`
+  - `#disk-usage` / `.disk-bar` / `.disk-bar-fill` を追加
+  - バー表示の修正: fill に `display:block`（インラインで width/height が無効化される問題）、外枠に暗背景(#1a1a1a)+ボーダーを付与し視認性を改善
+- `renderer.js`
+  - `formatBytes()`（GB/TB変換）/ `updateDiskUsage()` を追加し buildFolderTree() 末尾で呼ぶ
+  - fill の inline style に `!important` を付け CSS 上書きを防止
+
 ## v1.1.0 (2026-06-20) — フォルダ履歴機能
 
 ### 新機能
